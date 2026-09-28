@@ -4,5 +4,7 @@
 
 # Сборка
 bin/
+*.exe
+trip.json
 
 .DS_Store
