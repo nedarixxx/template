@@ -8,3 +8,11 @@ bin/
 trip.json
 
 .DS_Store
+
+# Test and coverage artifacts
+*.out
+*.html
+
+# Binaries
+bin/
+trip-service

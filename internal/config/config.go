@@ -13,7 +13,6 @@ type Config struct {
 	LogLevel        string
 	ShutdownTimeout time.Duration
 
-	// Параметры пула БД
 	DBMaxConns        int32
 	DBMinConns        int32
 	DBConnectTimeout  time.Duration

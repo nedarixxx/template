@@ -1,16 +1,11 @@
 package model
 
 import (
-	"errors"
 	"time"
 
 	"github.com/google/uuid"
-)
 
-var (
-	ErrNotFound         = errors.New("trip not found")
-	ErrDriverBusy       = errors.New("driver already has an active trip")
-	ErrAlreadyCompleted = errors.New("trip is already completed")
+	domaintrip "github.com/nedarixxx/template/internal/domain/trip"
 )
 
 type TripStatus string
@@ -37,6 +32,50 @@ type Trip struct {
 	FinishedAt *time.Time
 	CreatedAt  time.Time
 	UpdatedAt  time.Time
+}
+
+func (t Trip) ToDomain() *domaintrip.Trip {
+	return &domaintrip.Trip{
+		ID:     t.ID,
+		UserID: t.UserID,
+		DriverID: t.DriverID,
+		StartPoint: domaintrip.Coordinates{
+			Latitude:  t.StartPoint.Latitude,
+			Longitude: t.StartPoint.Longitude,
+		},
+		EndPoint: domaintrip.Coordinates{
+			Latitude:  t.EndPoint.Latitude,
+			Longitude: t.EndPoint.Longitude,
+		},
+		Price:      t.Price,
+		Status:     domaintrip.Status(t.Status),
+		StartedAt:  t.StartedAt,
+		FinishedAt: t.FinishedAt,
+		CreatedAt:  t.CreatedAt,
+		UpdatedAt:  t.UpdatedAt,
+	}
+}
+
+func FromDomain(d *domaintrip.Trip) Trip {
+	return Trip{
+		ID:       d.ID,
+		UserID:   d.UserID,
+		DriverID: d.DriverID,
+		StartPoint: Coordinates{
+			Latitude:  d.StartPoint.Latitude,
+			Longitude: d.StartPoint.Longitude,
+		},
+		EndPoint: Coordinates{
+			Latitude:  d.EndPoint.Latitude,
+			Longitude: d.EndPoint.Longitude,
+		},
+		Price:      d.Price,
+		Status:     TripStatus(d.Status),
+		StartedAt:  d.StartedAt,
+		FinishedAt: d.FinishedAt,
+		CreatedAt:  d.CreatedAt,
+		UpdatedAt:  d.UpdatedAt,
+	}
 }
 
 type TripStatusHistory struct {

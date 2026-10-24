@@ -1,0 +1,30 @@
+linters:
+  disable-all: true
+  enable:
+    - depguard
+
+linters-settings:
+  depguard:
+    rules:
+      domain:
+        list-mode: lax
+        files:
+          - "**/internal/domain/**"
+        deny:
+          - pkg: "github.com/nedarixxx/template/internal/usecase"
+            desc: "домен не может зависеть от сценариев"
+          - pkg: "github.com/nedarixxx/template/internal/infra"
+            desc: "домен не может зависеть от инфраструктуры"
+          - pkg: "github.com/nedarixxx/template/internal/repository"
+            desc: "домен не может зависеть от репозиториев"
+          - pkg: "github.com/nedarixxx/template/internal/http"
+            desc: "домен не может зависеть от HTTP-слоя"
+      usecase:
+        list-mode: lax
+        files:
+          - "**/internal/usecase/**"
+        deny:
+          - pkg: "github.com/nedarixxx/template/internal/infra"
+            desc: "сценарии не могут напрямую зависеть от инфраструктуры"
+          - pkg: "github.com/nedarixxx/template/internal/http"
+            desc: "сценарии не могут зависеть от транспортного слоя"
