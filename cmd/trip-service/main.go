@@ -49,16 +49,21 @@ func main() {
 	r.Use(middleware.Recoverer)
 
 	// Регистрация
-	api.HandlerFromMux(h, r)
+	api.HandlerWithOptions(h, api.ChiServerOptions{
+		BaseRouter: r,
+		ErrorHandlerFunc: func(w http.ResponseWriter, r *http.Request, err error) {
+			handler.WriteProblem(w, r, http.StatusBadRequest, "Invalid request", "Request validation failed", "invalid_request")
+		},
+	})
 
 	// 4 HTTP сервер
 	server := &http.Server{
-		Addr:         cfg.HTTPAddr,
-		Handler:      r,
+		Addr:              cfg.HTTPAddr,
+		Handler:           r,
 		ReadHeaderTimeout: 2 * time.Second,
-		ReadTimeout:  10 * time.Second,
-		WriteTimeout: 10 * time.Second,
-		IdleTimeout:  60 * time.Second,
+		ReadTimeout:       10 * time.Second,
+		WriteTimeout:      10 * time.Second,
+		IdleTimeout:       60 * time.Second,
 	}
 
 	shutdownErr := make(chan error, 1)

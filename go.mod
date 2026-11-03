@@ -1,6 +1,6 @@
 module github.com/nedarixxx/template
 
-go 1.27.1
+go 1.26.0
 
 tool (
 	github.com/oapi-codegen/oapi-codegen/v2/cmd/oapi-codegen

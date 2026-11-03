@@ -25,6 +25,12 @@ func NewTripRepository(db *database.DB) *TripRepository {
 }
 
 func (r *TripRepository) Create(ctx context.Context, trip *model.Trip) error {
+	if _, ok := ctx.Deadline(); !ok && r.db.QueryTimeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, r.db.QueryTimeout)
+		defer cancel()
+	}
+
 	exec := r.db.GetExecutor(ctx)
 
 	query, args, err := psql.Insert("trips").
@@ -48,7 +54,7 @@ func (r *TripRepository) Create(ctx context.Context, trip *model.Trip) error {
 	_, err = exec.Exec(ctx, query, args...)
 	if err != nil {
 		var pgErr *pgconn.PgError
-		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" && pgErr.ConstraintName == "trips_driver_active_idx" {
 			return model.ErrDriverBusy
 		}
 		return fmt.Errorf("exec insert trip: %w", err)
@@ -58,6 +64,12 @@ func (r *TripRepository) Create(ctx context.Context, trip *model.Trip) error {
 }
 
 func (r *TripRepository) AddHistoryStatus(ctx context.Context, h *model.TripStatusHistory) error {
+	if _, ok := ctx.Deadline(); !ok && r.db.QueryTimeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, r.db.QueryTimeout)
+		defer cancel()
+	}
+
 	exec := r.db.GetExecutor(ctx)
 
 	query, args, err := psql.Insert("trip_status_history").
@@ -77,6 +89,12 @@ func (r *TripRepository) AddHistoryStatus(ctx context.Context, h *model.TripStat
 }
 
 func (r *TripRepository) GetByID(ctx context.Context, id uuid.UUID) (*model.Trip, error) {
+	if _, ok := ctx.Deadline(); !ok && r.db.QueryTimeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, r.db.QueryTimeout)
+		defer cancel()
+	}
+
 	exec := r.db.GetExecutor(ctx)
 
 	query, args, err := psql.Select(
@@ -113,6 +131,12 @@ func (r *TripRepository) GetByID(ctx context.Context, id uuid.UUID) (*model.Trip
 }
 
 func (r *TripRepository) Complete(ctx context.Context, id uuid.UUID, finishedAt time.Time) error {
+	if _, ok := ctx.Deadline(); !ok && r.db.QueryTimeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, r.db.QueryTimeout)
+		defer cancel()
+	}
+
 	exec := r.db.GetExecutor(ctx)
 
 	query, args, err := psql.Update("trips").
