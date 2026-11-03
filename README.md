@@ -1,10 +1,9 @@
-```markdown
 # Trip Service (Lab 01)
 
 Сервис управления поездками платформы TripGo.
 
 ## Требования
-- Go 1.22+
+- Go 1.26+
 - PostgreSQL 16+
 - tripgoctl
 - make
@@ -58,9 +57,7 @@ make test
 * В таблице `trips` добавлен частичный уникальный индекс:
 ```sql
 CREATE UNIQUE INDEX trips_driver_active_idx ON trips (driver_id) WHERE (status = 'active');
-
 ```
-
 
 * При параллельных запросах на одного водителя база выбрасывает ошибку с кодом `23505 (unique_violation)`. Репозиторий распознает её и преобразует в доменную ошибку `ErrDriverBusy`, отдавая клиенту `409 Conflict` (`driver_busy`).
 

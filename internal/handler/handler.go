@@ -5,8 +5,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"math"
 	"net/http"
+	"strings"
 
+	"github.com/google/uuid"
 	"github.com/nedarixxx/template/api"
 	"github.com/nedarixxx/template/internal/model"
 	"github.com/nedarixxx/template/internal/service"
@@ -28,35 +32,72 @@ func New(tripService *service.TripService, pinger Pinger) *Handler {
 	}
 }
 
+type coordinatesRequest struct {
+	Latitude  *float64 `json:"latitude"`
+	Longitude *float64 `json:"longitude"`
+}
+
+type createTripRequest struct {
+	UserID     *uuid.UUID          `json:"user_id"`
+	DriverID   *uuid.UUID          `json:"driver_id"`
+	StartPoint *coordinatesRequest `json:"start_point"`
+	EndPoint   *coordinatesRequest `json:"end_point"`
+	Price      *int64              `json:"price"`
+}
+
 // POST /api/v1/trips
 func (h *Handler) CreateTrip(w http.ResponseWriter, r *http.Request, params api.CreateTripParams) {
-	var req api.TripData
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeProblem(w, r, http.StatusBadRequest, "Invalid Request", "Request body is invalid JSON", "invalid_request")
+	dec := json.NewDecoder(r.Body)
+	dec.DisallowUnknownFields()
+
+	var req createTripRequest
+	if err := dec.Decode(&req); err != nil {
+		WriteProblem(w, r, http.StatusBadRequest, "Invalid request", "Request validation failed", "invalid_request")
+		return
+	}
+	if dec.Decode(&struct{}{}) != io.EOF {
+		WriteProblem(w, r, http.StatusBadRequest, "Invalid request", "Request validation failed", "invalid_request")
+		return
+	}
+
+	if req.UserID == nil || *req.UserID == uuid.Nil ||
+		req.DriverID == nil || *req.DriverID == uuid.Nil ||
+		req.StartPoint == nil || req.StartPoint.Latitude == nil || req.StartPoint.Longitude == nil ||
+		req.EndPoint == nil || req.EndPoint.Latitude == nil || req.EndPoint.Longitude == nil ||
+		req.Price == nil || *req.Price < 0 ||
+		math.IsNaN(*req.StartPoint.Latitude) || math.IsInf(*req.StartPoint.Latitude, 0) ||
+		math.IsNaN(*req.StartPoint.Longitude) || math.IsInf(*req.StartPoint.Longitude, 0) ||
+		math.IsNaN(*req.EndPoint.Latitude) || math.IsInf(*req.EndPoint.Latitude, 0) ||
+		math.IsNaN(*req.EndPoint.Longitude) || math.IsInf(*req.EndPoint.Longitude, 0) ||
+		*req.StartPoint.Latitude < -90 || *req.StartPoint.Latitude > 90 ||
+		*req.StartPoint.Longitude < -180 || *req.StartPoint.Longitude > 180 ||
+		*req.EndPoint.Latitude < -90 || *req.EndPoint.Latitude > 90 ||
+		*req.EndPoint.Longitude < -180 || *req.EndPoint.Longitude > 180 {
+		WriteProblem(w, r, http.StatusBadRequest, "Invalid request", "Request validation failed", "invalid_request")
 		return
 	}
 
 	dto := service.CreateTripDTO{
-		UserID:   req.UserId,
-		DriverID: req.DriverId,
+		UserID:   *req.UserID,
+		DriverID: *req.DriverID,
 		StartPoint: model.Coordinates{
-			Latitude:  req.StartPoint.Latitude,
-			Longitude: req.StartPoint.Longitude,
+			Latitude:  *req.StartPoint.Latitude,
+			Longitude: *req.StartPoint.Longitude,
 		},
 		EndPoint: model.Coordinates{
-			Latitude:  req.EndPoint.Latitude,
-			Longitude: req.EndPoint.Longitude,
+			Latitude:  *req.EndPoint.Latitude,
+			Longitude: *req.EndPoint.Longitude,
 		},
-		Price: req.Price,
+		Price: *req.Price,
 	}
 
 	trip, err := h.tripService.CreateTrip(r.Context(), dto)
 	if err != nil {
 		if errors.Is(err, model.ErrDriverBusy) {
-			writeProblem(w, r, http.StatusConflict, "Driver busy", "Driver already has an active trip", "driver_busy")
+			WriteProblem(w, r, http.StatusConflict, "Driver busy", "Driver already has an active trip", "driver_busy")
 			return
 		}
-		writeProblem(w, r, http.StatusInternalServerError, "Internal Server Error", "Internal server error", "internal_error")
+		WriteProblem(w, r, http.StatusInternalServerError, "Internal Server Error", "Internal server error", "internal_error")
 		return
 	}
 
@@ -69,10 +110,10 @@ func (h *Handler) GetTrip(w http.ResponseWriter, r *http.Request, tripID api.Tri
 	trip, err := h.tripService.GetTrip(r.Context(), tripID)
 	if err != nil {
 		if errors.Is(err, model.ErrNotFound) {
-			writeProblem(w, r, http.StatusNotFound, "Not Found", "Trip was not found", "trip_not_found")
+			WriteProblem(w, r, http.StatusNotFound, "Trip not found", "Trip was not found", "trip_not_found")
 			return
 		}
-		writeProblem(w, r, http.StatusInternalServerError, "Internal Server Error", "Internal server error", "internal_error")
+		WriteProblem(w, r, http.StatusInternalServerError, "Internal Server Error", "Internal server error", "internal_error")
 		return
 	}
 
@@ -84,14 +125,14 @@ func (h *Handler) FinishTrip(w http.ResponseWriter, r *http.Request, tripID api.
 	trip, err := h.tripService.CompleteTrip(r.Context(), tripID)
 	if err != nil {
 		if errors.Is(err, model.ErrNotFound) {
-			writeProblem(w, r, http.StatusNotFound, "Not Found", "Trip was not found", "trip_not_found")
+			WriteProblem(w, r, http.StatusNotFound, "Trip not found", "Trip was not found", "trip_not_found")
 			return
 		}
 		if errors.Is(err, model.ErrAlreadyCompleted) {
-			writeProblem(w, r, http.StatusConflict, "Trip completed", "Operation is not allowed for a completed trip", "trip_completed")
+			WriteProblem(w, r, http.StatusConflict, "Trip completed", "Operation is not allowed for a completed trip", "trip_completed")
 			return
 		}
-		writeProblem(w, r, http.StatusInternalServerError, "Internal Server Error", "Internal server error", "internal_error")
+		WriteProblem(w, r, http.StatusInternalServerError, "Internal Server Error", "Internal server error", "internal_error")
 		return
 	}
 
@@ -113,11 +154,11 @@ func (h *Handler) Ready(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) ListTripPositions(w http.ResponseWriter, r *http.Request, tripID api.TripId) {
-	writeProblem(w, r, http.StatusNotImplemented, "Not Implemented", "Position tracking will be implemented in lab 3", "not_implemented")
+	WriteProblem(w, r, http.StatusNotImplemented, "Not Implemented", "Position tracking will be implemented in lab 3", "not_implemented")
 }
 
 func (h *Handler) CreateTripPosition(w http.ResponseWriter, r *http.Request, tripID api.TripId) {
-	writeProblem(w, r, http.StatusNotImplemented, "Not Implemented", "Position tracking will be implemented in lab 3", "not_implemented")
+	WriteProblem(w, r, http.StatusNotImplemented, "Not Implemented", "Position tracking will be implemented in lab 3", "not_implemented")
 }
 
 func toAPITrip(t *model.Trip) api.Trip {
@@ -146,11 +187,11 @@ func writeJSON(w http.ResponseWriter, status int, data any) {
 	_ = json.NewEncoder(w).Encode(data)
 }
 
-func writeProblem(w http.ResponseWriter, r *http.Request, status int, title, detail, code string) {
+func WriteProblem(w http.ResponseWriter, r *http.Request, status int, title, detail, code string) {
 	w.Header().Set("Content-Type", "application/problem+json")
 	w.WriteHeader(status)
 	instance := r.URL.Path
-	problemType := fmt.Sprintf("https://tripgo.example/problems/%s", code)
+	problemType := fmt.Sprintf("https://tripgo.example/problems/%s", strings.ReplaceAll(code, "_", "-"))
 	_ = json.NewEncoder(w).Encode(api.Problem{
 		Type:     problemType,
 		Title:    title,

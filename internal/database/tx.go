@@ -61,5 +61,10 @@ func (db *DB) GetExecutor(ctx context.Context) DBTX {
 }
 
 func (db *DB) Ping(ctx context.Context) error {
+	if _, ok := ctx.Deadline(); !ok && db.QueryTimeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, db.QueryTimeout)
+		defer cancel()
+	}
 	return db.Pool.Ping(ctx)
 }
