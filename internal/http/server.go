@@ -48,7 +48,7 @@ func (s *Server) FinishTrip(w http.ResponseWriter, r *http.Request, tripID api.T
 	s.finishHandler.Handle(w, r, tripID)
 }
 
-func (s *Server) Health(w http.ResponseWriter, r *http.Request) {
+func (s *Server) Health(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	_ = json.NewEncoder(w).Encode(api.HealthResponse{Status: api.Ok})
@@ -67,12 +67,12 @@ func (s *Server) Ready(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(api.HealthResponse{Status: api.Ok})
 }
 
-func (s *Server) ListTripPositions(w http.ResponseWriter, r *http.Request, _ api.TripId) {
+func (s *Server) ListTripPositions(w http.ResponseWriter, _ *http.Request, _ api.TripId) {
 	w.Header().Set("Content-Type", "application/problem+json")
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-func (s *Server) CreateTripPosition(w http.ResponseWriter, r *http.Request, _ api.TripId) {
+func (s *Server) CreateTripPosition(w http.ResponseWriter, _ *http.Request, _ api.TripId) {
 	w.Header().Set("Content-Type", "application/problem+json")
 	w.WriteHeader(http.StatusNotImplemented)
 }

@@ -36,8 +36,8 @@ type Trip struct {
 
 func (t Trip) ToDomain() *domaintrip.Trip {
 	return &domaintrip.Trip{
-		ID:     t.ID,
-		UserID: t.UserID,
+		ID:       t.ID,
+		UserID:   t.UserID,
 		DriverID: t.DriverID,
 		StartPoint: domaintrip.Coordinates{
 			Latitude:  t.StartPoint.Latitude,

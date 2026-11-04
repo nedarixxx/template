@@ -36,7 +36,7 @@ func (r *Repository) Save(ctx context.Context, trip model.Trip) error {
 	_, err = exec.Exec(ctx, query, args...)
 	if err != nil {
 		var pgErr *pgconn.PgError
-		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" && pgErr.ConstraintName == "trips_driver_active_idx" {
 			return domaintrip.ErrDriverBusy
 		}
 		return fmt.Errorf("exec insert trip: %w", err)

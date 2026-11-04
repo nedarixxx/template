@@ -1,13 +1,13 @@
 package finish_test
 
 import (
-	"go.opentelemetry.io/otel/metric/noop"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
+	"go.opentelemetry.io/otel/metric/noop"
 	"go.uber.org/mock/gomock"
 
 	domaintrip "github.com/nedarixxx/template/internal/domain/trip"

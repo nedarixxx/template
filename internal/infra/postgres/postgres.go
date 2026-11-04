@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/exaring/otelpgx"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -11,7 +12,8 @@ import (
 )
 
 type Client struct {
-	Pool *pgxpool.Pool
+	Pool         *pgxpool.Pool
+	QueryTimeout time.Duration
 }
 
 func New(ctx context.Context, cfg *config.Config) (*Client, error) {
@@ -20,8 +22,14 @@ func New(ctx context.Context, cfg *config.Config) (*Client, error) {
 		return nil, fmt.Errorf("parse db config: %w", err)
 	}
 
-	// Инструментирование пула pgx через OpenTelemetry
 	poolCfg.ConnConfig.Tracer = otelpgx.NewTracer()
+
+	if poolCfg.ConnConfig.RuntimeParams == nil {
+		poolCfg.ConnConfig.RuntimeParams = make(map[string]string)
+	}
+	if cfg.DBQueryTimeout > 0 {
+		poolCfg.ConnConfig.RuntimeParams["statement_timeout"] = fmt.Sprintf("%d", cfg.DBQueryTimeout.Milliseconds())
+	}
 
 	poolCfg.MaxConns = cfg.DBMaxConns
 	poolCfg.MinConns = cfg.DBMinConns
@@ -40,7 +48,10 @@ func New(ctx context.Context, cfg *config.Config) (*Client, error) {
 		return nil, fmt.Errorf("ping db: %w", err)
 	}
 
-	return &Client{Pool: pool}, nil
+	return &Client{
+		Pool:         pool,
+		QueryTimeout: cfg.DBQueryTimeout,
+	}, nil
 }
 
 func (c *Client) Close() {
@@ -50,5 +61,10 @@ func (c *Client) Close() {
 }
 
 func (c *Client) Ping(ctx context.Context) error {
+	if _, ok := ctx.Deadline(); !ok && c.QueryTimeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, c.QueryTimeout)
+		defer cancel()
+	}
 	return c.Pool.Ping(ctx)
 }

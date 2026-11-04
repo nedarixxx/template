@@ -6,7 +6,7 @@
 
 ## Требования
 
-* Go 1.27+ (или 1.24+)
+* Go 1.26+ (или 1.24+)
 * PostgreSQL 16+
 * Docker & Docker Compose
 * make / tripgoctl

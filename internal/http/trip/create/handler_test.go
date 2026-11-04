@@ -1,7 +1,6 @@
 package create_test
 
 import (
-	"go.opentelemetry.io/otel/metric/noop"
 	"bytes"
 	"encoding/json"
 	"errors"
@@ -11,6 +10,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"go.opentelemetry.io/otel/metric/noop"
 	"go.uber.org/mock/gomock"
 
 	"github.com/nedarixxx/template/api"

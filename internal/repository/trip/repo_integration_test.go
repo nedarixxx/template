@@ -5,6 +5,7 @@ package trip_test
 import (
 	"context"
 	"errors"
+	"net/url"
 	"os"
 	"testing"
 	"time"
@@ -22,7 +23,14 @@ func getTestPool(t *testing.T) *pgxpool.Pool {
 	t.Helper()
 	dbURL := os.Getenv("DATABASE_URL")
 	if dbURL == "" {
-		dbURL = "postgres://tripgo:tripgo@localhost:22032/tripgo?sslmode=disable"
+		u := url.URL{
+			Scheme:   "postgres",
+			User:     url.UserPassword("tripgo", "tripgo"),
+			Host:     "localhost:22032",
+			Path:     "tripgo",
+			RawQuery: "sslmode=disable",
+		}
+		dbURL = u.String()
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/nedarixxx/template/api"
 	domaintrip "github.com/nedarixxx/template/internal/domain/trip"
@@ -59,7 +60,7 @@ func Problem(err error) (int, api.Problem) {
 		detail = "Internal server error"
 	}
 
-	problemType := fmt.Sprintf("https://tripgo.example/problems/%s", code)
+	problemType := fmt.Sprintf("https://tripgo.example/problems/%s", strings.ReplaceAll(code, "_", "-"))
 
 	return status, api.Problem{
 		Type:   problemType,

@@ -8,7 +8,9 @@ import (
 
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetricgrpc"
+	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetrichttp"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
+	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp"
 	"go.opentelemetry.io/otel/metric"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/resource"
@@ -19,9 +21,6 @@ import (
 )
 
 type Telemetry struct {
-	tracerProvider *sdktrace.TracerProvider
-	meterProvider  *sdkmetric.MeterProvider
-
 	// Бизнес-метрики
 	TripsCreatedCounter   metric.Int64Counter
 	TripsCompletedCounter metric.Int64Counter
@@ -31,10 +30,10 @@ type Telemetry struct {
 	HTTPActiveRequests  metric.Int64UpDownCounter
 }
 
-// Init инициализирует трейсинг и метрики.
-// Если коллектор недоступен, сервис продолжает штатно работать.
+// Init инициализирует трейсинг и метрики
 func Init(ctx context.Context, serviceName string) (*Telemetry, func(context.Context) error, error) {
 	res, err := resource.New(ctx,
+		resource.WithFromEnv(),
 		resource.WithAttributes(
 			semconv.ServiceName(serviceName),
 		),
@@ -45,38 +44,79 @@ func Init(ctx context.Context, serviceName string) (*Telemetry, func(context.Con
 
 	endpoint := os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT")
 	if endpoint == "" {
-		endpoint = "localhost:22317"
+		endpoint = "http://localhost:22318"
 	}
-	endpoint = strings.TrimPrefix(endpoint, "http://")
-	endpoint = strings.TrimPrefix(endpoint, "https://")
 
-	// Настройка OTLP gRPC экспортера трейсов
-	traceExporter, err := otlptracegrpc.New(ctx,
-		otlptracegrpc.WithInsecure(),
-		otlptracegrpc.WithEndpoint(endpoint),
-		otlptracegrpc.WithDialOption(grpc.WithTransportCredentials(insecure.NewCredentials())),
+	protocol := strings.ToLower(os.Getenv("OTEL_EXPORTER_OTLP_PROTOCOL"))
+	isInsecure := !strings.HasPrefix(endpoint, "https://")
+	cleanEndpoint := strings.TrimPrefix(endpoint, "http://")
+	cleanEndpoint = strings.TrimPrefix(cleanEndpoint, "https://")
+
+	var (
+		traceExporter  sdktrace.SpanExporter
+		metricExporter sdkmetric.Exporter
 	)
-	if err != nil {
-		return nil, nil, err
+
+	if protocol == "grpc" {
+		// Настройка OTLP gRPC экспортера трейсов
+		grpcOpts := []otlptracegrpc.Option{
+			otlptracegrpc.WithEndpoint(cleanEndpoint),
+		}
+		if isInsecure {
+			grpcOpts = append(grpcOpts,
+				otlptracegrpc.WithInsecure(),
+				otlptracegrpc.WithDialOption(grpc.WithTransportCredentials(insecure.NewCredentials())),
+			)
+		}
+		traceExporter, err = otlptracegrpc.New(ctx, grpcOpts...)
+		if err != nil {
+			return nil, nil, err
+		}
+
+		// Настройка OTLP экспортера метрик
+		mGrpcOpts := []otlpmetricgrpc.Option{
+			otlpmetricgrpc.WithEndpoint(cleanEndpoint),
+		}
+		if isInsecure {
+			mGrpcOpts = append(mGrpcOpts, otlpmetricgrpc.WithInsecure())
+		}
+		metricExporter, err = otlpmetricgrpc.New(ctx, mGrpcOpts...)
+		if err != nil {
+			return nil, nil, err
+		}
+	} else {
+		httpOpts := []otlptracehttp.Option{
+			otlptracehttp.WithEndpoint(cleanEndpoint),
+		}
+		if isInsecure {
+			httpOpts = append(httpOpts, otlptracehttp.WithInsecure())
+		}
+		traceExporter, err = otlptracehttp.New(ctx, httpOpts...)
+		if err != nil {
+			return nil, nil, err
+		}
+
+		mHttpOpts := []otlpmetrichttp.Option{
+			otlpmetrichttp.WithEndpoint(cleanEndpoint),
+		}
+		if isInsecure {
+			mHttpOpts = append(mHttpOpts, otlpmetrichttp.WithInsecure())
+		}
+		metricExporter, err = otlpmetrichttp.New(ctx, mHttpOpts...)
+		if err != nil {
+			return nil, nil, err
+		}
 	}
 
 	tp := sdktrace.NewTracerProvider(
 		sdktrace.WithBatcher(traceExporter),
 		sdktrace.WithResource(res),
+		sdktrace.WithSampler(sdktrace.ParentBased(sdktrace.AlwaysSample())),
 	)
 	otel.SetTracerProvider(tp)
 
-	// Настройка OTLP экспортера метрик
-	metricExporter, err := otlpmetricgrpc.New(ctx,
-		otlpmetricgrpc.WithInsecure(),
-		otlpmetricgrpc.WithEndpoint(endpoint),
-	)
-	if err != nil {
-		return nil, nil, err
-	}
-
 	mp := sdkmetric.NewMeterProvider(
-		sdkmetric.WithReader(sdkmetric.NewPeriodicReader(metricExporter, sdkmetric.WithInterval(3*time.Second))),
+		sdkmetric.WithReader(sdkmetric.NewPeriodicReader(metricExporter, sdkmetric.WithInterval(1*time.Second))),
 		sdkmetric.WithResource(res),
 	)
 	otel.SetMeterProvider(mp)
@@ -110,8 +150,6 @@ func Init(ctx context.Context, serviceName string) (*Telemetry, func(context.Con
 	}
 
 	return &Telemetry{
-		tracerProvider:        tp,
-		meterProvider:         mp,
 		TripsCreatedCounter:   tripsCreated,
 		TripsCompletedCounter: tripsCompleted,
 		HTTPRequestDuration:   httpDuration,

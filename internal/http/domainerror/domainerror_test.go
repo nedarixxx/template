@@ -17,7 +17,7 @@ func TestProblem(t *testing.T) {
 		wantCode       string
 		wantTitle      string
 		wantDetail     string
-		forbidInDetail string 
+		forbidInDetail string
 	}{
 		{
 			name:       "trip not found error",

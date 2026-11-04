@@ -8,7 +8,6 @@ import (
 	"github.com/nedarixxx/template/internal/model"
 )
 
-
 type (
 	tripRepository interface {
 		Save(ctx context.Context, trip model.Trip) error
