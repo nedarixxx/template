@@ -3,62 +3,101 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
-	"github.com/go-chi/chi/v5"
-	"github.com/go-chi/chi/v5/middleware"
+	chi "github.com/go-chi/chi/v5"
+
 	"github.com/nedarixxx/template/api"
 	"github.com/nedarixxx/template/internal/config"
-	"github.com/nedarixxx/template/internal/database"
-	"github.com/nedarixxx/template/internal/handler"
-	"github.com/nedarixxx/template/internal/repository"
-	"github.com/nedarixxx/template/internal/service"
+	"github.com/nedarixxx/template/internal/container"
+	"github.com/nedarixxx/template/internal/http/domainerror"
+	appmiddleware "github.com/nedarixxx/template/internal/http/middleware"
+	"github.com/nedarixxx/template/internal/infra/telemetry"
 )
 
+func parseLogLevel(lvl string) slog.Level {
+	switch strings.ToLower(lvl) {
+	case "debug":
+		return slog.LevelDebug
+	case "warn", "warning":
+		return slog.LevelWarn
+	case "error":
+		return slog.LevelError
+	default:
+		return slog.LevelInfo
+	}
+}
+
 func main() {
+	if err := run(); err != nil {
+		log.Fatalf("server terminated with error: %v", err)
+	}
+}
+
+func run() error {
 	cfg, err := config.Load()
 	if err != nil {
-		log.Fatalf("failed to load config: %v", err)
+		return fmt.Errorf("load config: %w", err)
 	}
+
+	// 1. Инициализация структурированного логгера
+	logLevel := parseLogLevel(cfg.LogLevel)
+	logger := telemetry.NewLogger(os.Stdout, logLevel, "trip-service")
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	// 1 Инициализация пула БД
-	db, err := database.New(ctx, cfg)
+	// 2. Инициализация
+	tel, shutdownTel, err := telemetry.Init(ctx, "trip-service")
 	if err != nil {
-		log.Fatalf("failed to connect to db: %v", err)
+		logger.Error("failed to init telemetry", slog.Any("error", err))
+	} else {
+		defer func() {
+			shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 3*time.Second)
+			defer shutdownCancel()
+			_ = shutdownTel(shutdownCtx)
+		}()
 	}
-	defer db.Close()
 
-	// 2 Сборка слоев
-	repo := repository.NewTripRepository(db)
-	tripService := service.NewTripService(repo, db)
-	h := handler.New(tripService, db)
+	// 3. контейнер
+	c, err := container.New(ctx, cfg, tel, logger)
+	if err != nil {
+		return fmt.Errorf("init container: %w", err)
+	}
+	defer c.Close()
 
-	// 3 Роутер
+	// 4. Роутер и цепочка middleware
 	r := chi.NewRouter()
-	r.Use(middleware.RequestID)
-	r.Use(middleware.RealIP)
-	r.Use(middleware.Logger)
-	r.Use(middleware.Recoverer)
+	r.Use(appmiddleware.Recover(logger))
+	r.Use(appmiddleware.Tracing("trip-service"))
+	r.Use(appmiddleware.Logging(logger))
+	if tel != nil {
+		r.Use(appmiddleware.Metrics(tel.HTTPActiveRequests, tel.HTTPRequestDuration))
+	}
 
-	// Регистрация
-	api.HandlerFromMux(h, r)
+	api.HandlerWithOptions(c.Server, api.ChiServerOptions{
+		BaseRouter: r,
+		ErrorHandlerFunc: func(w http.ResponseWriter, r *http.Request, err error) {
+			domainerror.Write(w, r, domainerror.ErrInvalidRequest)
+		},
+	})
 
-	// 4 HTTP сервер
+	// 5. HTTP сервер
 	server := &http.Server{
-		Addr:         cfg.HTTPAddr,
-		Handler:      r,
+		Addr:              cfg.HTTPAddr,
+		Handler:           r,
 		ReadHeaderTimeout: 2 * time.Second,
-		ReadTimeout:  10 * time.Second,
-		WriteTimeout: 10 * time.Second,
-		IdleTimeout:  60 * time.Second,
+		ReadTimeout:       10 * time.Second,
+		WriteTimeout:      10 * time.Second,
+		IdleTimeout:       60 * time.Second,
 	}
 
 	shutdownErr := make(chan error, 1)
@@ -67,22 +106,22 @@ func main() {
 		signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
 		<-sigChan
 
-		log.Println("shutting down server...")
-
+		logger.Info("shutting down server...")
 		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), cfg.ShutdownTimeout)
 		defer shutdownCancel()
 
 		shutdownErr <- server.Shutdown(shutdownCtx)
 	}()
 
-	log.Printf("server is listening on %s", cfg.HTTPAddr)
+	logger.Info("server is listening", slog.String("addr", cfg.HTTPAddr))
 	if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-		log.Fatalf("http server error: %v", err)
+		return fmt.Errorf("http server failed: %w", err)
 	}
 
 	if err := <-shutdownErr; err != nil {
-		log.Printf("error during shutdown: %v", err)
+		logger.Error("error during shutdown", slog.Any("error", err))
 	}
 
-	log.Println("server stopped successfully")
+	logger.Info("server stopped successfully")
+	return nil
 }

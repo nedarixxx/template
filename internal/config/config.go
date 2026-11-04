@@ -13,7 +13,6 @@ type Config struct {
 	LogLevel        string
 	ShutdownTimeout time.Duration
 
-	// Параметры пула БД
 	DBMaxConns        int32
 	DBMinConns        int32
 	DBConnectTimeout  time.Duration
@@ -24,13 +23,13 @@ type Config struct {
 func Load() (*Config, error) {
 	cfg := &Config{
 		HTTPAddr:          getEnv("HTTP_ADDR", ":8080"),
-		DatabaseURL:       os.Getenv("DATABASE_URL"),
-		LogLevel:          getEnv("LOG_LEVEL", "debug"),
-		ShutdownTimeout:   getDurationEnv("SHUTDOWN_TIMEOUT", 5*time.Second),
+		DatabaseURL:       getEnv("DATABASE_URL", "postgres://tripgo:tripgo@localhost:22032/tripgo?sslmode=disable"),
+		LogLevel:          getEnv("LOG_LEVEL", "info"),
+		ShutdownTimeout:   getDurationEnv("SHUTDOWN_TIMEOUT", 10*time.Second),
 		DBMaxConns:        getInt32Env("DATABASE_MAX_CONNS", 10),
 		DBMinConns:        getInt32Env("DATABASE_MIN_CONNS", 2),
-		DBConnectTimeout:  getDurationEnv("DATABASE_CONNECT_TIMEOUT", 3*time.Second),
-		DBQueryTimeout:    getDurationEnv("DATABASE_QUERY_TIMEOUT", 5*time.Second),
+		DBConnectTimeout:  getDurationEnv("DATABASE_CONNECT_TIMEOUT", 5*time.Second),
+		DBQueryTimeout:    getDurationEnv("DATABASE_QUERY_TIMEOUT", 3*time.Second),
 		DBMaxConnLifetime: getDurationEnv("DATABASE_MAX_CONN_LIFETIME", 30*time.Minute),
 	}
 

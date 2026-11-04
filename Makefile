@@ -1,19 +1,24 @@
-.PHONY: generate migrate build run
+.PHONY: generate test test-all lint migrate build run up down
 
-# Чтение переменных из .env, если файл существует
 ifneq (,$(wildcard ./.env))
     include .env
     export
 endif
 
-DATABASE_URL ?= postgres://tripgo:tripgo@localhost:21032/tripgo?sslmode=disable
+DATABASE_URL ?= postgres://tripgo:tripgo@localhost:22032/tripgo?sslmode=disable
 HTTP_ADDR ?= :8080
 
 generate:
 	go tool oapi-codegen -generate types,chi-server -package api -o api/api.gen.go contracts/openapi/trip-service.openapi.yaml
 
 test:
-	go test -v -race ./...
+	go test -v -race ./internal/domain/... ./internal/usecase/... ./internal/http/...
+
+test-all:
+	go test -v -race -tags=integration ./...
+
+lint:
+	golangci-lint run ./...
 
 migrate:
 	go tool goose -dir ./migrations postgres "$(DATABASE_URL)" up
@@ -23,3 +28,9 @@ build:
 
 run: build
 	HTTP_ADDR=$(HTTP_ADDR) DATABASE_URL="$(DATABASE_URL)" ./bin/trip-service
+
+up:
+	docker compose up -d --build
+
+down:
+	docker compose down
