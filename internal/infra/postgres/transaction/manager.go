@@ -1,11 +1,12 @@
-package database
+package transaction
 
 import (
 	"context"
 	"fmt"
 
-	"github.com/jackc/pgx/v5"
+	pgx "github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 type txKey struct{}
@@ -16,20 +17,20 @@ type DBTX interface {
 	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
 }
 
-type TxManager interface {
-	Do(ctx context.Context, fn func(ctx context.Context) error) error
+type Manager struct {
+	pool *pgxpool.Pool
 }
 
-func (db *DB) Do(ctx context.Context, fn func(ctx context.Context) error) (err error) {
+func NewManager(pool *pgxpool.Pool) *Manager {
+	return &Manager{pool: pool}
+}
+
+func (m *Manager) Do(ctx context.Context, fn func(ctx context.Context) error) (err error) {
 	if _, ok := ctx.Value(txKey{}).(pgx.Tx); ok {
 		return fn(ctx)
 	}
 
-	opts := pgx.TxOptions{
-		IsoLevel: pgx.ReadCommitted,
-	}
-
-	tx, err := db.Pool.BeginTx(ctx, opts)
+	tx, err := m.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
 	if err != nil {
 		return fmt.Errorf("begin tx: %w", err)
 	}
@@ -53,13 +54,9 @@ func (db *DB) Do(ctx context.Context, fn func(ctx context.Context) error) (err e
 	return err
 }
 
-func (db *DB) GetExecutor(ctx context.Context) DBTX {
+func GetExecutor(ctx context.Context, pool *pgxpool.Pool) DBTX {
 	if tx, ok := ctx.Value(txKey{}).(pgx.Tx); ok {
 		return tx
 	}
-	return db.Pool
-}
-
-func (db *DB) Ping(ctx context.Context) error {
-	return db.Pool.Ping(ctx)
+	return pool
 }

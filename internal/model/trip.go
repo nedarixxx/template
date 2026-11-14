@@ -1,16 +1,11 @@
 package model
 
 import (
-	"errors"
 	"time"
 
 	"github.com/google/uuid"
-)
 
-var (
-	ErrNotFound         = errors.New("trip not found")
-	ErrDriverBusy       = errors.New("driver already has an active trip")
-	ErrAlreadyCompleted = errors.New("trip is already completed")
+	domaintrip "github.com/nedarixxx/template/internal/domain/trip"
 )
 
 type TripStatus string
@@ -26,17 +21,64 @@ type Coordinates struct {
 }
 
 type Trip struct {
-	ID         uuid.UUID
-	UserID     uuid.UUID
-	DriverID   uuid.UUID
-	StartPoint Coordinates
-	EndPoint   Coordinates
-	Price      int64
-	Status     TripStatus
-	StartedAt  time.Time
-	FinishedAt *time.Time
-	CreatedAt  time.Time
-	UpdatedAt  time.Time
+	ID             uuid.UUID
+	UserID         uuid.UUID
+	DriverID       uuid.UUID
+	StartPoint     Coordinates
+	EndPoint       Coordinates
+	Price          int64
+	Status         TripStatus
+	StartedAt      time.Time
+	FinishedAt     *time.Time
+	LastPositionAt *time.Time
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
+}
+
+func (t Trip) ToDomain() *domaintrip.Trip {
+	return &domaintrip.Trip{
+		ID:       t.ID,
+		UserID:   t.UserID,
+		DriverID: t.DriverID,
+		StartPoint: domaintrip.Coordinates{
+			Latitude:  t.StartPoint.Latitude,
+			Longitude: t.StartPoint.Longitude,
+		},
+		EndPoint: domaintrip.Coordinates{
+			Latitude:  t.EndPoint.Latitude,
+			Longitude: t.EndPoint.Longitude,
+		},
+		Price:          t.Price,
+		Status:         domaintrip.Status(t.Status),
+		StartedAt:      t.StartedAt,
+		FinishedAt:     t.FinishedAt,
+		LastPositionAt: t.LastPositionAt,
+		CreatedAt:      t.CreatedAt,
+		UpdatedAt:      t.UpdatedAt,
+	}
+}
+
+func FromDomain(d *domaintrip.Trip) Trip {
+	return Trip{
+		ID:       d.ID,
+		UserID:   d.UserID,
+		DriverID: d.DriverID,
+		StartPoint: Coordinates{
+			Latitude:  d.StartPoint.Latitude,
+			Longitude: d.StartPoint.Longitude,
+		},
+		EndPoint: Coordinates{
+			Latitude:  d.EndPoint.Latitude,
+			Longitude: d.EndPoint.Longitude,
+		},
+		Price:          d.Price,
+		Status:         TripStatus(d.Status),
+		StartedAt:      d.StartedAt,
+		FinishedAt:     d.FinishedAt,
+		LastPositionAt: d.LastPositionAt,
+		CreatedAt:      d.CreatedAt,
+		UpdatedAt:      d.UpdatedAt,
+	}
 }
 
 type TripStatusHistory struct {
@@ -46,4 +88,18 @@ type TripStatusHistory struct {
 	ToStatus   TripStatus
 	Reason     *string
 	ChangedAt  time.Time
+}
+
+type TripPosition struct {
+	ID          int64
+	TripID      uuid.UUID
+	Coordinates Coordinates
+	RecordedAt  time.Time
+	CreatedAt   time.Time
+}
+
+type StaleTrip struct {
+	ID       uuid.UUID
+	DriverID uuid.UUID
+	StaleAt  time.Time
 }
