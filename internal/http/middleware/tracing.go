@@ -8,6 +8,7 @@ import (
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/propagation"
 	semconv "go.opentelemetry.io/otel/semconv/v1.26.0"
 	"go.opentelemetry.io/otel/trace"
 )
@@ -24,7 +25,8 @@ func Tracing(serviceName string) func(http.Handler) http.Handler {
 
 			spanName := fmt.Sprintf("%s %s", r.Method, routePattern)
 
-			ctx, span := tracer.Start(r.Context(), spanName,
+			extractedCtx := otel.GetTextMapPropagator().Extract(r.Context(), propagation.HeaderCarrier(r.Header))
+			ctx, span := tracer.Start(extractedCtx, spanName,
 				trace.WithSpanKind(trace.SpanKindServer),
 				trace.WithAttributes(
 					semconv.HTTPRequestMethodKey.String(r.Method),

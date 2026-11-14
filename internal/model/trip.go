@@ -21,17 +21,18 @@ type Coordinates struct {
 }
 
 type Trip struct {
-	ID         uuid.UUID
-	UserID     uuid.UUID
-	DriverID   uuid.UUID
-	StartPoint Coordinates
-	EndPoint   Coordinates
-	Price      int64
-	Status     TripStatus
-	StartedAt  time.Time
-	FinishedAt *time.Time
-	CreatedAt  time.Time
-	UpdatedAt  time.Time
+	ID             uuid.UUID
+	UserID         uuid.UUID
+	DriverID       uuid.UUID
+	StartPoint     Coordinates
+	EndPoint       Coordinates
+	Price          int64
+	Status         TripStatus
+	StartedAt      time.Time
+	FinishedAt     *time.Time
+	LastPositionAt *time.Time
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
 }
 
 func (t Trip) ToDomain() *domaintrip.Trip {
@@ -47,12 +48,13 @@ func (t Trip) ToDomain() *domaintrip.Trip {
 			Latitude:  t.EndPoint.Latitude,
 			Longitude: t.EndPoint.Longitude,
 		},
-		Price:      t.Price,
-		Status:     domaintrip.Status(t.Status),
-		StartedAt:  t.StartedAt,
-		FinishedAt: t.FinishedAt,
-		CreatedAt:  t.CreatedAt,
-		UpdatedAt:  t.UpdatedAt,
+		Price:          t.Price,
+		Status:         domaintrip.Status(t.Status),
+		StartedAt:      t.StartedAt,
+		FinishedAt:     t.FinishedAt,
+		LastPositionAt: t.LastPositionAt,
+		CreatedAt:      t.CreatedAt,
+		UpdatedAt:      t.UpdatedAt,
 	}
 }
 
@@ -69,12 +71,13 @@ func FromDomain(d *domaintrip.Trip) Trip {
 			Latitude:  d.EndPoint.Latitude,
 			Longitude: d.EndPoint.Longitude,
 		},
-		Price:      d.Price,
-		Status:     TripStatus(d.Status),
-		StartedAt:  d.StartedAt,
-		FinishedAt: d.FinishedAt,
-		CreatedAt:  d.CreatedAt,
-		UpdatedAt:  d.UpdatedAt,
+		Price:          d.Price,
+		Status:         TripStatus(d.Status),
+		StartedAt:      d.StartedAt,
+		FinishedAt:     d.FinishedAt,
+		LastPositionAt: d.LastPositionAt,
+		CreatedAt:      d.CreatedAt,
+		UpdatedAt:      d.UpdatedAt,
 	}
 }
 
@@ -85,4 +88,18 @@ type TripStatusHistory struct {
 	ToStatus   TripStatus
 	Reason     *string
 	ChangedAt  time.Time
+}
+
+type TripPosition struct {
+	ID          int64
+	TripID      uuid.UUID
+	Coordinates Coordinates
+	RecordedAt  time.Time
+	CreatedAt   time.Time
+}
+
+type StaleTrip struct {
+	ID       uuid.UUID
+	DriverID uuid.UUID
+	StaleAt  time.Time
 }

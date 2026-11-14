@@ -11,6 +11,8 @@ import (
 
 var psql = sq.StatementBuilder.PlaceholderFormat(sq.Dollar)
 
+const colStatus = "status"
+
 type Repository struct {
 	pool *pgxpool.Pool
 }

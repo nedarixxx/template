@@ -12,6 +12,7 @@ import (
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp"
 	"go.opentelemetry.io/otel/metric"
+	"go.opentelemetry.io/otel/propagation"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
@@ -21,16 +22,21 @@ import (
 )
 
 type Telemetry struct {
-	// Бизнес-метрики
 	TripsCreatedCounter   metric.Int64Counter
 	TripsCompletedCounter metric.Int64Counter
 
-	// HTTP-метрики
 	HTTPRequestDuration metric.Float64Histogram
 	HTTPActiveRequests  metric.Int64UpDownCounter
+
+	PositionsSavedCounter         metric.Int64Counter
+	StaleChecksCounter            metric.Int64Counter
+	StaleTripsRowsReadCounter     metric.Int64Counter
+	PositionRequestsQueueSize     metric.Int64UpDownCounter
+	PositionRequestsWorkersActive metric.Int64UpDownCounter
+	PositionRequestsCounter       metric.Int64Counter
+	PositionRequestsDuration      metric.Float64Histogram
 }
 
-// Init инициализирует трейсинг и метрики
 func Init(ctx context.Context, serviceName string) (*Telemetry, func(context.Context) error, error) {
 	res, err := resource.New(ctx,
 		resource.WithFromEnv(),
@@ -58,7 +64,6 @@ func Init(ctx context.Context, serviceName string) (*Telemetry, func(context.Con
 	)
 
 	if protocol == "grpc" {
-		// Настройка OTLP gRPC экспортера трейсов
 		grpcOpts := []otlptracegrpc.Option{
 			otlptracegrpc.WithEndpoint(cleanEndpoint),
 		}
@@ -73,7 +78,6 @@ func Init(ctx context.Context, serviceName string) (*Telemetry, func(context.Con
 			return nil, nil, err
 		}
 
-		// Настройка OTLP экспортера метрик
 		mGrpcOpts := []otlpmetricgrpc.Option{
 			otlpmetricgrpc.WithEndpoint(cleanEndpoint),
 		}
@@ -114,6 +118,10 @@ func Init(ctx context.Context, serviceName string) (*Telemetry, func(context.Con
 		sdktrace.WithSampler(sdktrace.ParentBased(sdktrace.AlwaysSample())),
 	)
 	otel.SetTracerProvider(tp)
+	otel.SetTextMapPropagator(propagation.NewCompositeTextMapPropagator(
+		propagation.TraceContext{},
+		propagation.Baggage{},
+	))
 
 	mp := sdkmetric.NewMeterProvider(
 		sdkmetric.WithReader(sdkmetric.NewPeriodicReader(metricExporter, sdkmetric.WithInterval(1*time.Second))),
@@ -143,6 +151,41 @@ func Init(ctx context.Context, serviceName string) (*Telemetry, func(context.Con
 		metric.WithUnit("{requests}"),
 	)
 
+	positionsSaved, _ := meter.Int64Counter("tripgo.positions.saved",
+		metric.WithDescription("Total number of positions saved"),
+		metric.WithUnit("{positions}"),
+	)
+
+	staleChecks, _ := meter.Int64Counter("tripgo.stale_checks",
+		metric.WithDescription("Result of stale trip checks"),
+		metric.WithUnit("{checks}"),
+	)
+
+	rowsRead, _ := meter.Int64Counter("tripgo.stale_trips.rows_read",
+		metric.WithDescription("Total number of stale trip rows read"),
+		metric.WithUnit("{rows}"),
+	)
+
+	queueSize, _ := meter.Int64UpDownCounter("tripgo.position_requests.queue.size",
+		metric.WithDescription("Current number of tasks in the queue"),
+		metric.WithUnit("{tasks}"),
+	)
+
+	workersActive, _ := meter.Int64UpDownCounter("tripgo.position_requests.workers.active",
+		metric.WithDescription("Current number of active workers"),
+		metric.WithUnit("{workers}"),
+	)
+
+	posRequests, _ := meter.Int64Counter("tripgo.position_requests",
+		metric.WithDescription("Result of position requests"),
+		metric.WithUnit("{requests}"),
+	)
+
+	posReqDuration, _ := meter.Float64Histogram("tripgo.position_requests.duration",
+		metric.WithDescription("Duration of position requests in seconds"),
+		metric.WithUnit("s"),
+	)
+
 	shutdown := func(shutdownCtx context.Context) error {
 		_ = tp.Shutdown(shutdownCtx)
 		_ = mp.Shutdown(shutdownCtx)
@@ -150,9 +193,16 @@ func Init(ctx context.Context, serviceName string) (*Telemetry, func(context.Con
 	}
 
 	return &Telemetry{
-		TripsCreatedCounter:   tripsCreated,
-		TripsCompletedCounter: tripsCompleted,
-		HTTPRequestDuration:   httpDuration,
-		HTTPActiveRequests:    activeRequests,
+		TripsCreatedCounter:           tripsCreated,
+		TripsCompletedCounter:         tripsCompleted,
+		HTTPRequestDuration:           httpDuration,
+		HTTPActiveRequests:            activeRequests,
+		PositionsSavedCounter:         positionsSaved,
+		StaleChecksCounter:            staleChecks,
+		StaleTripsRowsReadCounter:     rowsRead,
+		PositionRequestsQueueSize:     queueSize,
+		PositionRequestsWorkersActive: workersActive,
+		PositionRequestsCounter:       posRequests,
+		PositionRequestsDuration:      posReqDuration,
 	}, shutdown, nil
 }

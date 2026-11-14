@@ -9,6 +9,8 @@ import (
 	createTrip "github.com/nedarixxx/template/internal/http/trip/create"
 	finishTrip "github.com/nedarixxx/template/internal/http/trip/finish"
 	getTrip "github.com/nedarixxx/template/internal/http/trip/get"
+	createPosition "github.com/nedarixxx/template/internal/http/trip/position/create"
+	listPositions "github.com/nedarixxx/template/internal/http/trip/position/list"
 )
 
 type Pinger interface {
@@ -16,23 +18,29 @@ type Pinger interface {
 }
 
 type Server struct {
-	createHandler *createTrip.Handler
-	getHandler    *getTrip.Handler
-	finishHandler *finishTrip.Handler
-	pinger        Pinger
+	createHandler         *createTrip.Handler
+	getHandler            *getTrip.Handler
+	finishHandler         *finishTrip.Handler
+	createPositionHandler *createPosition.Handler
+	listPositionsHandler  *listPositions.Handler
+	pinger                Pinger
 }
 
 func NewServer(
 	createHandler *createTrip.Handler,
 	getHandler *getTrip.Handler,
 	finishHandler *finishTrip.Handler,
+	createPositionHandler *createPosition.Handler,
+	listPositionsHandler *listPositions.Handler,
 	pinger Pinger,
 ) *Server {
 	return &Server{
-		createHandler: createHandler,
-		getHandler:    getHandler,
-		finishHandler: finishHandler,
-		pinger:        pinger,
+		createHandler:         createHandler,
+		getHandler:            getHandler,
+		finishHandler:         finishHandler,
+		createPositionHandler: createPositionHandler,
+		listPositionsHandler:  listPositionsHandler,
+		pinger:                pinger,
 	}
 }
 
@@ -67,12 +75,10 @@ func (s *Server) Ready(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(api.HealthResponse{Status: api.Ok})
 }
 
-func (s *Server) ListTripPositions(w http.ResponseWriter, _ *http.Request, _ api.TripId) {
-	w.Header().Set("Content-Type", "application/problem+json")
-	w.WriteHeader(http.StatusNotImplemented)
+func (s *Server) ListTripPositions(w http.ResponseWriter, r *http.Request, tripID api.TripId) {
+	s.listPositionsHandler.Handle(w, r, tripID)
 }
 
-func (s *Server) CreateTripPosition(w http.ResponseWriter, _ *http.Request, _ api.TripId) {
-	w.Header().Set("Content-Type", "application/problem+json")
-	w.WriteHeader(http.StatusNotImplemented)
+func (s *Server) CreateTripPosition(w http.ResponseWriter, r *http.Request, tripID api.TripId) {
+	s.createPositionHandler.Handle(w, r, tripID)
 }

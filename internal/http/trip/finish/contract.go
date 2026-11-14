@@ -8,7 +8,6 @@ import (
 	"github.com/nedarixxx/template/internal/model"
 )
 
-
 type useCase interface {
 	Execute(ctx context.Context, id uuid.UUID) (model.Trip, error)
 }

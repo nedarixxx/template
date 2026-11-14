@@ -60,6 +60,45 @@ func TestTrip_Finish(t *testing.T) {
 	}
 }
 
+func TestTrip_AddPosition(t *testing.T) {
+	now := time.Now().UTC()
+	pos1 := now.Add(5 * time.Minute)
+	pos2 := now.Add(10 * time.Minute)
+	olderPos := now.Add(2 * time.Minute)
+
+	tr := &trip.Trip{
+		ID:        uuid.New(),
+		Status:    trip.StatusActive,
+		StartedAt: now,
+	}
+
+	if err := tr.AddPosition(pos1); err != nil {
+		t.Fatalf("unexpected error adding position: %v", err)
+	}
+	if tr.LastPositionAt == nil || !tr.LastPositionAt.Equal(pos1) {
+		t.Fatalf("expected LastPositionAt %v, got %v", pos1, tr.LastPositionAt)
+	}
+
+	if err := tr.AddPosition(pos2); err != nil {
+		t.Fatalf("unexpected error adding newer position: %v", err)
+	}
+	if tr.LastPositionAt == nil || !tr.LastPositionAt.Equal(pos2) {
+		t.Fatalf("expected LastPositionAt %v, got %v", pos2, tr.LastPositionAt)
+	}
+
+	if err := tr.AddPosition(olderPos); err != nil {
+		t.Fatalf("unexpected error adding older position: %v", err)
+	}
+	if tr.LastPositionAt == nil || !tr.LastPositionAt.Equal(pos2) {
+		t.Fatalf("expected LastPositionAt to remain %v, got %v", pos2, tr.LastPositionAt)
+	}
+
+	tr.Status = trip.StatusCompleted
+	if err := tr.AddPosition(now.Add(15 * time.Minute)); !errors.Is(err, trip.ErrTripCompleted) {
+		t.Fatalf("expected ErrTripCompleted, got %v", err)
+	}
+}
+
 func TestValidationError_Error(t *testing.T) {
 	err := trip.ValidationError{
 		Field:   "price",

@@ -1,4 +1,4 @@
-# Trip Service (Lab 02)
+# Trip Service (Lab 03)
 
 Сервис управления поездками платформы TripGo. Реализован по принципам Clean Architecture с соблюдением строгой изоляции слоёв, транзакционной целостности и сквозной наблюдаемости (OpenTelemetry, JSON slog, Jaeger).
 
@@ -60,6 +60,8 @@ make down
 * `POST /api/v1/trips` — создание поездки (возвращает `201 Created` или `409 Conflict`, если водитель занят).
 * `GET /api/v1/trips/{tripId}` — получение информации о поездке (`200 OK` или `404 Not Found`).
 * `POST /api/v1/trips/{tripId}/finish` — завершение поездки (`200 OK` или `409 Conflict`, если поездка уже завершена).
+* `POST /api/v1/trips/{tripId}/positions` — сохранение координаты поездки (`201 Created`, `400 Bad Request`, `404 Not Found`, `409 Conflict`, если поездка завершена). Автоматически отменяет ожидающий push-запрос в очереди для данной поездки.
+* `GET /api/v1/trips/{tripId}/positions` — получение упорядоченной истории координат поездки (`200 OK` или `404 Not Found`).
 
 ### Пробы работоспособности (Health Checks)
 
@@ -106,6 +108,13 @@ make down
 | `DATABASE_MAX_CONN_LIFETIME` | Время жизни соединения в пуле | `30m` |
 | `DATABASE_CONNECT_TIMEOUT` | Таймаут на подключение к БД | `5s` |
 | `DATABASE_QUERY_TIMEOUT` | Таймаут на выполнение запроса | `3s` |
+| `POSITION_CHECK_INTERVAL` | Интервал запуска сканера устаревших поездок | `30s` |
+| `POSITION_STALE_AFTER` | Порог отсутствия координат для признания поездки устаревшей | `60s` |
+| `POSITION_WORKERS` | Количество воркеров в пуле отправки пушей | `4` |
+| `POSITION_QUEUE_SIZE` | Размер ограниченной очереди задач на опрос координат | `100` |
+| `POSITION_BATCH_SIZE` | Размер порции при keyset-пагинации выборки устаревших поездок | `100` |
+| `PUSH_HTTP_URL` | Базовый URL Push Service API | `http://localhost:8090` |
+| `PUSH_REQUEST_TIMEOUT` | Таймаут HTTP-запроса к Push Service | `1s` |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | Эндпоинт экспортера OpenTelemetry (gRPC) | `localhost:22317` |
 
 ---
@@ -119,6 +128,98 @@ make down
 * `internal/http/trip/...` — транспортный уровень Chi: маршрутизация, валидация DTO, инкремент метрик и маппинг ошибок в формат RFC 7807 Problem Details (покрытие тестами **100.0%**).
 * `internal/repository/trip` — персистентность данных в PostgreSQL на базе `pgxpool` и драйвера `otelpgx` (покрытие тестами **78.5%**).
 * `internal/infra/telemetry` — сквозная трассировка OpenTelemetry, сбор метрик и структурированное JSON-логирование `slog` с обогащением контекста `trace_id` и `span_id`.
+
+---
+
+## Опрос устаревших поездок (Лабораторная работа 03: Координаты, очередь и worker pool)
+
+### 1. Архитектурная схема
+
+Механизм location push предназначен для актуализации местоположения водителей активных поездок, от которых перестали поступать координаты (связь оборвалась, приложение свернуто, сел аккумулятор):
+
+```
+┌──────────────┐     порциями по     ┌────────────────────┐
+│   PostgreSQL │ ── POSITION_BATCH ──►│  positions.Scanner │ (запуск по тикеру POSITION_CHECK_INTERVAL,
+│  (DB Table   │     (keyset без     │   (Non-Overlapping)│  защита CAS от наложения итераций)
+│    trips)    │       OFFSET)       └─────────┬──────────┘
+└──────────────┘                               │ Enqueue
+                                               ▼
+                                     ┌────────────────────┐
+                                     │   PriorityQueue    │ (Min-Heap по stale_at, размер POSITION_QUEUE_SIZE,
+                                     │  (Thread-Safe MTX) │  дедупликация, отмена Cancel, вытеснение Evict)
+                                     └─────────┬──────────┘
+                                               │ Dequeue (самые давно не обновлявшиеся первые)
+                                               ▼
+                                     ┌────────────────────┐
+                                     │    Worker Pool     │ (POSITION_WORKERS горутин,
+                                     │ (Fixed Goroutines) │  Span OpenTelemetry с trace.Link)
+                                     └─────────┬──────────┘
+                                               │ HTTP POST /api/v1/push
+                                               ▼
+                                     ┌────────────────────┐
+                                     │    Push Service    │ (Команда REQUEST_POSITION)
+                                     └────────────────────┘
+```
+
+### 2. Параметры конфигурации
+
+Все параметры задаются через переменные окружения (с дефолтными значениями):
+
+* `POSITION_CHECK_INTERVAL` (по умолчанию `30s`): период срабатывания тикера сканера устаревших поездок.
+* `POSITION_STALE_AFTER` (по умолчанию `60s`): время отсутствия свежих координат, после которого активная поездка считается устаревшей (`COALESCE(last_position_at, started_at) <= now() - POSITION_STALE_AFTER`).
+* `POSITION_WORKERS` (по умолчанию `4`): фиксированное количество параллельных горутин-воркеров, обрабатывающих задачи из очереди.
+* `POSITION_QUEUE_SIZE` (по умолчанию `100`): максимальная емкость очереди задач на опрос координат.
+* `POSITION_BATCH_SIZE` (по умолчанию `100`): размер порции (батча) при keyset-пагинации выборки устаревших поездок из БД.
+* `PUSH_HTTP_URL` (по умолчанию `http://localhost:8090`): базовый URL Push Service API для отправки команды `REQUEST_POSITION`.
+* `PUSH_REQUEST_TIMEOUT` (по умолчанию `1s`): таймаут HTTP-клиента при отправке запроса в Push Service.
+
+### 3. Keyset-пагинация (бонусное задание ★)
+
+Для поддержки десятков тысяч активных поездок без деградации производительности БД:
+* Выборка устаревших поездок выполняется батчами размера `POSITION_BATCH_SIZE`.
+* Вместо медленного `OFFSET` используется keyset-пагинация по кортежу `(stale_at, id)`:
+  ```sql
+  WHERE (COALESCE(last_position_at, started_at) > $last_stale_at 
+     OR (COALESCE(last_position_at, started_at) = $last_stale_at AND id > $last_id))
+  ```
+* Запрос полностью покрывается частичным B-Tree индексом:
+  ```sql
+  CREATE INDEX CONCURRENTLY IF NOT EXISTS trips_stale_active_idx
+  ON trips (COALESCE(last_position_at, started_at) ASC, id ASC)
+  WHERE (status = 'active');
+  ```
+* План выполнения (`EXPLAIN ANALYZE`) подтверждает `Index Scan` без `Seq Scan` и сортировки в памяти.
+* Счётчик `tripgo.stale_trips.rows_read` фиксирует общее число прочитанных строк из БД.
+
+### 4. Очередь с приоритетом и поведение при переполнении (бонусное задание ★)
+
+Очередь реализована в виде потокобезопасного (`sync.Mutex`) Min-Heap по времени `stale_at` (наиболее давно не обновлявшиеся поездки извлекаются первыми):
+
+1. **Дедупликация (`ResultDuplicate`):**
+   * Если поездка уже находится в очереди или в данный момент опрашивается воркером (`inFlight`), повторная попытка добавления игнорируется без создания дублирующих задач.
+
+2. **Отмена при поступлении координаты (`Cancel`):**
+   * При вызове эндпоинта `POST /api/v1/trips/{tripId}/positions` UseCase вызывает `canceler.Cancel(tripID)`.
+   * Если задача находилась в очереди, она помечается отмененной (`cancelled = true`).
+   * Воркер при извлечении такой задачи пропускает отправку пуша, экономя ресурсы сети и устройства.
+
+3. **Поведение при переполнении очереди (`capacity == POSITION_QUEUE_SIZE`):**
+   * Если входящая поездка **старше** (время `stale_at` меньше), чем самая «свежая» поездка из находящихся в очереди:
+     * Самая свежая поездка извлекается из очереди и **вытесняется** (`ResultEvicted`).
+     * Входящая старая поездка вставляется в очередь на её место.
+     * Логируется предупреждение `slog.Warn("position request evicted from queue", ...)`, метрика `tripgo.position_requests` увеличивается с атрибутом `result="evicted"`.
+   * Если входящая поездка **свежее**, чем самая свежая в очереди:
+     * Входящая поездка **отбрасывается** (`ResultDropped`).
+     * Логируется предупреждение `slog.Warn("position request dropped: queue is full of older tasks", ...)`, метрика `tripgo.position_requests` увеличивается с атрибутом `result="dropped"`.
+     * Сканер мгновенно прекращает дальнейшее чтение батчей в текущем цикле тикера, так как очередь заполнена более приоритетными задачами.
+
+### 5. Graceful Shutdown
+
+Остановка приложения выполняется строго поэтапно:
+1. `server.Shutdown(shutdownCtx)` — прекращение приёма входящих HTTP-запросов и ожидание завершения текущих.
+2. `positionsPool.StopScanner()` — мгновенная остановка тикера и фонового сканера.
+3. `positionsPool.WaitWorkers(shutdownCtx)` — закрытие очереди на вход (`CloseInput`), ожидание разбора оставшихся в очереди задач воркерами с соблюдением общего таймаута контекста.
+4. `container.Close()` — корректное закрытие пула соединений PostgreSQL (`pool.Close()`) и экспорт оставшейся телеметрии OpenTelemetry.
 
 ---
 

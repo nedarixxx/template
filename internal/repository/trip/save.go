@@ -4,8 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	sq "github.com/Masterminds/squirrel"
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgconn"
 
 	domaintrip "github.com/nedarixxx/template/internal/domain/trip"
@@ -83,6 +85,61 @@ func (r *Repository) AddStatusHistory(ctx context.Context, h model.TripStatusHis
 
 	if _, err := exec.Exec(ctx, query, args...); err != nil {
 		return fmt.Errorf("exec insert status history: %w", err)
+	}
+
+	return nil
+}
+
+func (r *Repository) SavePosition(ctx context.Context, pos model.TripPosition) (model.TripPosition, error) {
+	exec := r.getExecutor(ctx)
+
+	query, args, err := psql.Insert("trip_positions").
+		Columns("trip_id", "latitude", "longitude", "recorded_at").
+		Values(pos.TripID, pos.Coordinates.Latitude, pos.Coordinates.Longitude, pos.RecordedAt).
+		Suffix("RETURNING id, created_at").
+		ToSql()
+	if err != nil {
+		return model.TripPosition{}, fmt.Errorf("build insert position query: %w", err)
+	}
+
+	var (
+		id        int64
+		createdAt time.Time
+	)
+	if err := exec.QueryRow(ctx, query, args...).Scan(&id, &createdAt); err != nil {
+		return model.TripPosition{}, fmt.Errorf("exec insert position: %w", err)
+	}
+
+	pos.ID = id
+	pos.CreatedAt = createdAt
+	return pos, nil
+}
+
+func (r *Repository) UpdateLastPositionAt(ctx context.Context, tripID uuid.UUID, recordedAt time.Time) error {
+	exec := r.getExecutor(ctx)
+
+	query, args, err := psql.Update("trips").
+		Set("last_position_at", sq.Expr("CASE WHEN last_position_at IS NULL OR ? > last_position_at THEN ? ELSE last_position_at END", recordedAt, recordedAt)).
+		Set("updated_at", sq.Expr("now()")).
+		Where(sq.Eq{
+			"id":      tripID,
+			colStatus: string(model.StatusActive),
+		}).
+		ToSql()
+	if err != nil {
+		return fmt.Errorf("build update last position query: %w", err)
+	}
+
+	tag, err := exec.Exec(ctx, query, args...)
+	if err != nil {
+		return fmt.Errorf("exec update last position: %w", err)
+	}
+
+	if tag.RowsAffected() == 0 {
+		if _, err := r.GetByID(ctx, tripID); err != nil {
+			return domaintrip.ErrTripNotFound
+		}
+		return domaintrip.ErrTripCompleted
 	}
 
 	return nil

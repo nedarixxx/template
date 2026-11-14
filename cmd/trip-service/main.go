@@ -14,6 +14,7 @@ import (
 	"time"
 
 	chi "github.com/go-chi/chi/v5"
+	"github.com/joho/godotenv"
 
 	"github.com/nedarixxx/template/api"
 	"github.com/nedarixxx/template/internal/config"
@@ -43,6 +44,8 @@ func main() {
 }
 
 func run() error {
+	_ = godotenv.Load()
+
 	cfg, err := config.Load()
 	if err != nil {
 		return fmt.Errorf("load config: %w", err)
@@ -73,6 +76,10 @@ func run() error {
 		return fmt.Errorf("init container: %w", err)
 	}
 	defer c.Close()
+
+	if c.PositionsPool != nil {
+		c.PositionsPool.Start(ctx)
+	}
 
 	// 4. Роутер и цепочка middleware
 	r := chi.NewRouter()
@@ -110,7 +117,14 @@ func run() error {
 		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), cfg.ShutdownTimeout)
 		defer shutdownCancel()
 
-		shutdownErr <- server.Shutdown(shutdownCtx)
+		err := server.Shutdown(shutdownCtx)
+
+		if c.PositionsPool != nil {
+			c.PositionsPool.StopScanner()
+			c.PositionsPool.WaitWorkers(shutdownCtx)
+		}
+
+		shutdownErr <- err
 	}()
 
 	logger.Info("server is listening", slog.String("addr", cfg.HTTPAddr))
